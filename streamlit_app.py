@@ -10,30 +10,41 @@ st.title("🌊 全興廠水質監測儀表板")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 讀取分頁：水質記錄
-    df = conn.read(worksheet="水質記錄", ttl="0")
+    # --- 修改重點：不要在 read 裡面寫中文，直接讀取預設工作表 ---
+    df = conn.read(ttl="0") 
     
-    # 數值轉換，避免圖表出錯
-    # 我們先印出欄位名稱來確認
     st.success("✅ 數據同步成功")
-    
-    # 側邊欄過濾功能
-    st.sidebar.header("功能選單")
-    item = st.sidebar.selectbox("選擇監測項目", ["COD", "SS", "PH", "溫度"])
 
-    tab1, tab2 = st.tabs(["📊 數據總覽", "📈 趨勢圖表"])
+    # 對應你 Excel 裡的實際欄位名稱
+    # 這裡要跟圖片裡的標題一模一樣
+    cols_map = {
+        "檢測項COD": "COD",
+        "檢測項目SS": "SS",
+        "檢測項目PH": "PH",
+        "檢測項目溫度": "溫度"
+    }
+    
+    # 重新命名欄位方便畫圖
+    df = df.rename(columns=cols_map)
+
+    tab1, tab2 = st.tabs(["📊 數據總覽", "📈 趨勢分析"])
 
     with tab1:
         st.subheader("📋 最新檢測數據 (由新到舊)")
-        # 顯示最新數據
         st.dataframe(df.iloc[::-1], use_container_width=True)
         
     with tab2:
-        st.subheader(f"📈 {item} 歷史走勢")
-        # 繪圖
-        fig = px.line(df, x="日期", y=item, title=f"{item} 走勢圖", markers=True)
+        st.subheader("📈 歷史走勢圖")
+        # 只選擇有轉換成功的數值欄位
+        available_cols = [c for c in ["COD", "SS", "PH", "溫度"] if c in df.columns]
+        target = st.selectbox("選擇監測項目", available_cols)
+        
+        # 轉換為數字格式確保繪圖正常
+        df[target] = pd.to_numeric(df[target], errors='coerce')
+        
+        fig = px.line(df, x="日期", y=target, title=f"{target} 趨勢", markers=True)
         st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"❌ 連線失敗：{e}")
-    st.info("請確認 Secrets 裡的網址是否正確，且 Excel 的分頁名稱是否為 '水質記錄'。")
+    st.error(f"❌ 系統錯誤：{e}")
+    st.info("請確認 Secrets 裡的網址後面沒有多餘的中文字。")
