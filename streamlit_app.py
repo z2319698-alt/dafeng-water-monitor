@@ -4,105 +4,92 @@ import pandas as pd
 import plotly.express as px
 
 # 1. 網頁基本設定
-st.set_page_config(page_title="全興廠自動化監測系統", layout="wide")
+st.set_page_config(page_title="全興廠監測系統 V2", layout="wide")
 
-# --- 修改後的深色 CSS：讓背景變深，按鈕更有質感 ---
+# --- 質感深色 CSS ---
 st.markdown("""
     <style>
-    /* 1. 讓側邊欄背景變為深灰色 (像 image_3f6238.png 那樣) */
-    [data-testid="stSidebar"] {
-        background-color: #262730;
-    }
-    
-    /* 2. 調整側邊欄所有文字為白色 */
-    [data-testid="stSidebar"] .stMarkdown p, [data-testid="stSidebar"] h1 {
-        color: white !important;
-    }
-
-    /* 3. 按鈕外觀調整 (深色底、白字、細邊框) */
+    [data-testid="stSidebar"] { background-color: #262730; }
+    [data-testid="stSidebar"] .stMarkdown p { color: white !important; }
     .stButton > button {
-        width: 100%;
-        border-radius: 8px;
-        height: 3em;
-        background-color: #3e3f4b; /* 深灰按鈕底色 */
-        color: #ffffff;            /* 白色文字 */
-        border: 1px solid #4d4d4d;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
-        text-align: left;
-        padding-left: 15px;
-        margin-bottom: 10px;
+        width: 100%; border-radius: 8px; height: 3em;
+        background-color: #3e3f4b; color: #ffffff; border: 1px solid #4d4d4d;
+        text-align: left; padding-left: 15px; margin-bottom: 10px;
     }
-
-    /* 4. 滑鼠移上去的變色效果 (亮藍色或綠色邊框) */
-    .stButton > button:hover {
-        border-color: #00d4ff;
-        background-color: #4e505c;
-        color: #ffffff;
-        transform: translateY(-1px);
-    }
-
-    /* 5. 隱藏預設的單選標記 */
-    div[role="radiogroup"] {
-        display: none;
-    }
+    .stButton > button:hover { border-color: #00d4ff; background-color: #4e505c; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 建立 Google Sheets 連線
+# 2. 建立連線 (指向申報總表的分頁)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 側邊欄：質感按鈕導覽列 ---
-st.sidebar.title("🏠 系統導航")
-st.sidebar.markdown("---")
-
-# 初始化頁面狀態
+# --- 導覽功能 ---
 if 'current_page' not in st.session_state:
     st.session_state.current_page = "1. 全興廢水水質資料"
 
-# 定義導覽按鈕
-def nav_button(label, icon):
+def nav_item(label, icon):
     if st.sidebar.button(f"{icon} {label}"):
         st.session_state.current_page = label
 
-# 逐一建立按鈕
-nav_button("1. 全興廢水水質資料", "🌊")
-nav_button("2. 全興空污排放資料", "💨")
-nav_button("3. 全興廢水水量統計", "📏")
-nav_button("4. 每月衍生廢棄物量統計", "♻️")
-nav_button("5. 每月原物料量統計", "📦")
-nav_button("6. 每月產品量統計", "🏭")
+st.sidebar.title("🏠 系統導航")
+nav_item("1. 全興廢水水質資料", "🌊")
+nav_item("2. 全興空污排放資料", "💨")
+nav_item("3. 全興廢水水量統計", "📏")
+nav_item("4. 每月衍生廢棄物量統計", "♻️")
+nav_item("5. 每月原物料量統計", "📦")
+nav_item("6. 每月產品量統計", "🏭")
 
-st.sidebar.markdown("---")
-if st.sidebar.button("🔄 更新資料庫"):
-    st.cache_data.clear()
-    st.rerun()
-
-# 獲取目前選定頁面並顯示內容
 page = st.session_state.current_page
 st.title(page)
 
-# --- 數據處理邏輯 ---
+# --- 核心數據抓取邏輯 ---
+def get_report_data(rows_list, value_names):
+    # 讀取「全興廠申報表_佳欣」分頁 
+    raw_df = conn.read(worksheet="全興廠申報表_佳欣", ttl="0")
+    
+    # 提取第1列(A1)作為日期，並篩選 114.01 以後 
+    dates = raw_df.iloc[0, 1:].values
+    mask = [str(d) >= "114.01" for d in dates]
+    filtered_dates = dates[mask]
+    
+    results = {"月份": filtered_dates}
+    for row_idx, name in zip(rows_list, value_names):
+        # 減 2 是因為 DataFrame index 從 0 開始且 Excel 與 DF 的偏移
+        # 根據  的結構，我們精確定位列號
+        vals = raw_df.iloc[row_idx-1, 1:].values[mask]
+        results[name] = pd.to_numeric([str(v).replace(',', '') for v in vals], errors='coerce')
+    
+    return pd.DataFrame(results)
+
 try:
-    df = conn.read(ttl="0")
-
     if page == "1. 全興廢水水質資料":
-        # 對應 Excel 實際欄位
-        cols_map = {"檢測項COD": "COD", "檢測項目SS": "SS", "檢測項目PH": "PH", "檢測項目溫度": "溫度"}
-        df_view = df.rename(columns=cols_map)
+        df = conn.read(worksheet="水質記錄", ttl="0")
+        st.dataframe(df.iloc[::-1], use_container_width=True)
 
-        tab1, tab2 = st.tabs(["📋 數據總覽", "📈 趨勢分析"])
-        with tab1:
-            st.dataframe(df_view.iloc[::-1], use_container_width=True)
-        with tab2:
-            items = ["COD", "SS", "PH", "溫度"]
-            available = [c for c in items if c in df_view.columns]
-            target = st.selectbox("選擇監測指標", available)
-            df_view[target] = pd.to_numeric(df_view[target], errors='coerce')
-            fig = px.line(df_view, x="日期", y=target, title=f"{target} 歷史走勢", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info(f"💡 【{page}】內容建置中...")
+    elif page == "3. 全興廢水水量統計":
+        # 抓取 A30 (廢水量-納管排放) 
+        df = get_report_data([30], ["廢水量(T)"])
+        st.bar_chart(df.set_index("月份"))
+        st.dataframe(df, use_container_width=True)
+
+    elif page == "4. 每月衍生廢棄物量統計":
+        # 抓取 A31, A36, A40 
+        df = get_report_data([31, 36, 40], ["廢塑膠混合物", "R-0201產出", "有機污泥"])
+        fig = px.line(df, x="月份", y=df.columns[1:], markers=True, title="廢棄物趨勢")
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(df, use_container_width=True)
+
+    elif page == "5. 每月原物料量統計":
+        # 抓取 A26 (瓶磚-投入量) 
+        df = get_report_data([26], ["原物料投入量"])
+        st.area_chart(df.set_index("月份"))
+        st.dataframe(df, use_container_width=True)
+
+    elif page == "6. 每月產品量統計":
+        # 抓取 A27, A28 (塑膠碎片產出量、粒) 
+        df = get_report_data([27, 28], ["塑膠碎片(粉)", "塑膠粒"])
+        st.bar_chart(df.set_index("月份"))
+        st.dataframe(df, use_container_width=True)
 
 except Exception as e:
-    st.error(f"❌ 數據載入失敗：{e}")
+    st.error(f"數據對接失敗，請檢查 Excel 分頁名稱是否為『全興廠申報表_佳欣』。錯誤訊息: {e}")
