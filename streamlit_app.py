@@ -6,30 +6,69 @@ import plotly.express as px
 # 1. 網頁基本設定
 st.set_page_config(page_title="全興廠自動化監測系統", layout="wide")
 
+# --- 自定義 CSS：打造高質感按鈕 ---
+st.markdown("""
+    <style>
+    /* 側邊欄整體背景稍微加深 */
+    [data-testid="stSidebar"] {
+        background-color: #f8f9fa;
+    }
+    /* 自定義按鈕樣式 */
+    .stButton > button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        background-color: #ffffff;
+        color: #31333F;
+        border: 1px solid #e0e0e0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: all 0.3s ease;
+        text-align: left;
+        padding-left: 20px;
+        margin-bottom: 10px;
+    }
+    /* 懸停效果 */
+    .stButton > button:hover {
+        border-color: #4CAF50;
+        color: #4CAF50;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+    /* 選中狀態的模擬 (透過 Session State) */
+    </style>
+    """, unsafe_allow_html=True)
+
 # 2. 建立 Google Sheets 連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 側邊欄：一目了然導覽列 ---
-st.sidebar.title("🏢 全興廠監測中心")
+# --- 側邊欄：質感按鈕導覽列 ---
+st.sidebar.title("🏠 系統導航")
 st.sidebar.markdown("---")
 
-# 將項目逐一列出
-page = st.sidebar.radio(
-    "📊 數據監測項目清單",
-    [
-        "1. 全興廢水水質資料",
-        "2. 全興空污排放資料",
-        "3. 全興廢水水量統計",
-        "4. 每月衍生廢棄物量統計",
-        "5. 每月原物料量統計",
-        "6. 每月產品量統計"
-    ],
-    index=0 # 預設停在第一個
-)
+# 初始化頁面狀態
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "1. 全興廢水水質資料"
+
+# 定義導覽按鈕
+def nav_button(label, icon):
+    if st.sidebar.button(f"{icon} {label}"):
+        st.session_state.current_page = label
+
+# 逐一建立按鈕
+nav_button("1. 全興廢水水質資料", "🌊")
+nav_button("2. 全興空污排放資料", "💨")
+nav_button("3. 全興廢水水量統計", "📏")
+nav_button("4. 每月衍生廢棄物量統計", "♻️")
+nav_button("5. 每月原物料量統計", "📦")
+nav_button("6. 每月產品量統計", "🏭")
 
 st.sidebar.markdown("---")
+if st.sidebar.button("🔄 更新資料庫"):
+    st.cache_data.clear()
+    st.rerun()
 
-# 顯示目前頁面標題
+# 獲取目前選定頁面
+page = st.session_state.current_page
 st.title(page)
 
 # --- 數據處理邏輯 ---
@@ -53,29 +92,12 @@ try:
             fig = px.line(df_view, x="日期", y=target, title=f"{target} 歷史走勢", markers=True)
             st.plotly_chart(fig, use_container_width=True)
 
-    elif page == "2. 全興空污排放資料":
-        st.info("💨 此模組正等待空污自動化腳本 (Gmail OCR) 串接數據。")
-        st.write("目前狀態：待機中")
-
-    elif page == "3. 全興廢水水量統計":
-        st.info("📏 每日進流水與放流水量統計模組。")
-        st.write("目前狀態：待機中")
-
-    elif page == "4. 每月衍生廢棄物量統計":
-        st.info("♻️ 每月廢油、廢淤泥、一般垃圾產量統計。")
-        st.write("目前狀態：待機中")
-
-    elif page == "5. 每月原物料量統計":
-        st.info("📦 每月藥劑、燃料、生產原料消耗量。")
-        st.write("目前狀態：待機中")
-
-    elif page == "6. 每月產品量統計":
-        st.info("🏭 每月成品產出量統計。")
-        st.write("目前狀態：待機中")
+    else:
+        st.info(f"💡 系統提示：【{page}】模組已建立，目前等待數據資料夾串接。")
+        st.write("請確保 Excel 中有對應的分頁名稱。")
 
 except Exception as e:
-    st.error(f"❌ 數據載入失敗：{e}")
+    st.error(f"❌ 數據連線失敗：{e}")
 
-# --- 側邊欄底端資訊 ---
-st.sidebar.markdown("---")
-st.sidebar.caption(f"系統運行中 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+# 頁尾資訊
+st.sidebar.caption(f"系統狀態：運行中")
