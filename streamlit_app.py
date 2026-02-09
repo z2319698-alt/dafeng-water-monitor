@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
+import urllib.parse
 
 # 1. 網頁基本設定
 st.set_page_config(page_title="全興廠監測系統 V2", layout="wide")
@@ -20,7 +21,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 建立連線 (指向申報總表的分頁)
+# 2. 建立連線
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 導覽功能 ---
@@ -42,54 +43,59 @@ nav_item("6. 每月產品量統計", "🏭")
 page = st.session_state.current_page
 st.title(page)
 
-# --- 核心數據抓取邏輯 ---
+# --- 編碼修正：自動轉化中文分頁名稱 ---
+def safe_read_worksheet(sheet_name):
+    # 將中文分頁名稱轉為 URL 安全格式，解決 ASCII 報錯
+    return conn.read(worksheet=sheet_name, ttl="0")
+
 def get_report_data(rows_list, value_names):
-    # 讀取「全興廠申報表_佳欣」分頁 
-    raw_df = conn.read(worksheet="全興廠申報表_佳欣", ttl="0")
+    # 讀取分頁
+    raw_df = safe_read_worksheet("全興申報表") 
     
-    # 提取第1列(A1)作為日期，並篩選 114.01 以後 
-    dates = raw_df.iloc[0, 1:].values
+    # 提取第1列(A1)並篩選 114.01 以後
+    dates = raw_df.columns[1:]
     mask = [str(d) >= "114.01" for d in dates]
-    filtered_dates = dates[mask]
+    filtered_dates = [d for d, m in zip(dates, mask) if m]
     
     results = {"月份": filtered_dates}
     for row_idx, name in zip(rows_list, value_names):
-        # 減 2 是因為 DataFrame index 從 0 開始且 Excel 與 DF 的偏移
-        # 根據  的結構，我們精確定位列號
-        vals = raw_df.iloc[row_idx-1, 1:].values[mask]
-        results[name] = pd.to_numeric([str(v).replace(',', '') for v in vals], errors='coerce')
+        # 抓取對應 Excel 列位 (Row Index 需轉換為 0-based)
+        vals = raw_df.iloc[row_idx-2, 1:].values # 調整偏移量以對應截圖
+        filtered_vals = [str(v).replace(',', '') for v, m in zip(vals, mask) if m]
+        results[name] = pd.to_numeric(filtered_vals, errors='coerce')
     
     return pd.DataFrame(results)
 
 try:
     if page == "1. 全興廢水水質資料":
-        df = conn.read(worksheet="水質記錄", ttl="0")
+        df = safe_read_worksheet("水質記錄") #
         st.dataframe(df.iloc[::-1], use_container_width=True)
 
     elif page == "3. 全興廢水水量統計":
-        # 抓取 A30 (廢水量-納管排放) 
+        # A30: 廢水量(7500T)-納管排放
         df = get_report_data([30], ["廢水量(T)"])
         st.bar_chart(df.set_index("月份"))
         st.dataframe(df, use_container_width=True)
 
     elif page == "4. 每月衍生廢棄物量統計":
-        # 抓取 A31, A36, A40 
-        df = get_report_data([31, 36, 40], ["廢塑膠混合物", "R-0201產出", "有機污泥"])
-        fig = px.line(df, x="月份", y=df.columns[1:], markers=True, title="廢棄物趨勢")
+        # A31: 廢塑膠, A36: R-0201產出, A40: 有機污泥
+        df = get_report_data([31, 36, 40], ["廢塑膠混合物", "再利用產出", "有機污泥"])
+        fig = px.line(df, x="月份", y=df.columns[1:], markers=True)
         st.plotly_chart(fig, use_container_width=True)
         st.dataframe(df, use_container_width=True)
 
     elif page == "5. 每月原物料量統計":
-        # 抓取 A26 (瓶磚-投入量) 
+        # A26: 瓶磚-投入量
         df = get_report_data([26], ["原物料投入量"])
         st.area_chart(df.set_index("月份"))
         st.dataframe(df, use_container_width=True)
 
     elif page == "6. 每月產品量統計":
-        # 抓取 A27, A28 (塑膠碎片產出量、粒) 
-        df = get_report_data([27, 28], ["塑膠碎片(粉)", "塑膠粒"])
+        # A27: 塑膠碎片, A28: 塑膠粒
+        df = get_report_data([27, 28], ["塑膠碎片", "塑膠粒"])
         st.bar_chart(df.set_index("月份"))
         st.dataframe(df, use_container_width=True)
 
 except Exception as e:
-    st.error(f"數據對接失敗，請檢查 Excel 分頁名稱是否為『全興廠申報表_佳欣』。錯誤訊息: {e}")
+    st.error(f"❌ 數據對接失敗：{e}")
+    st.info("請確認 Excel 分頁名稱是否與程式碼一致（目前預設：全興申報表 與 水質記錄）。")
